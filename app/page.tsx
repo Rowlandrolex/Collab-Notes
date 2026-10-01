@@ -1,0 +1,201 @@
+﻿'use client';
+import { useEffect, useState } from 'react';
+import { supabase } from '@/lib/supabase';
+import { useRouter } from 'next/navigation';
+
+export default function Dashboard() {
+  const [user, setUser] = useState<any>(null);
+  const [notes, setNotes] = useState<any[]>([]);
+  const [messages, setMessages] = useState<any[]>([]);
+  const [chatMessage, setChatMessage] = useState('');
+  const [roomTopic, setRoomTopic] = useState('general');
+  const [selectedLevel, setSelectedLevel] = useState('100');
+
+  const [title, setTitle] = useState('');
+  const [courseCode, setCourseCode] = useState('');
+  const [lecturer, setLecturer] = useState('');
+  const [content, setContent] = useState('');
+  const [loading, setLoading] = useState(true);
+  const router = useRouter();
+
+  useEffect(() => {
+    const checkUser = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        const { data: { user: serverUser } } = await supabase.auth.getUser();
+        if (!serverUser) { router.push('/auth'); return; }
+        setUser(serverUser);
+      } else { setUser(session.user); }
+      setLoading(false);
+    };
+    checkUser();
+  }, [router]);
+
+  useEffect(() => {
+    if (!user) return;
+    fetchNotes(selectedLevel);
+    fetchMessages(roomTopic, selectedLevel);
+
+    const instanceId = Math.random().toString(36).substring(7);
+    const channel = supabase
+      .channel(`room-${selectedLevel}-${roomTopic}-${instanceId}`)
+      .on('postgres_changes', { 
+        event: 'INSERT', 
+        schema: 'public', 
+        table: 'discussions', 
+        filter: `room_topic=eq.${roomTopic}` 
+      }, (payload) => {
+        if (payload.new.student_level === selectedLevel) {
+          setMessages((prev) => [payload.new, ...prev]);
+        }
+      }).subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [roomTopic, selectedLevel, user]);
+
+  const fetchNotes = async (level: string) => {
+    const { data } = await supabase.from('notes').select('*').eq('student_level', level).order('created_at', { ascending: false });
+    if (data) setNotes(data);
+  };
+
+  const fetchMessages = async (topic: string, level: string) => {
+    const { data } = await supabase.from('discussions').select('*').eq('room_topic', topic).eq('student_level', level).order('created_at', { ascending: false });
+    if (data) setMessages(data);
+  };
+
+  const handleUploadNote = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const { error } = await supabase.from('notes').insert([
+      { user_id: user.id, title, course_code: courseCode, lecturer_name: lecturer, content, student_level: selectedLevel }
+    ]);
+    if (!error) { setTitle(''); setCourseCode(''); setLecturer(''); setContent(''); fetchNotes(selectedLevel); }
+  };
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatMessage.trim()) return;
+    
+    // Fallback pipeline: read the current user metadata name instantly
+    const profileName = user.user_metadata?.full_name || user.email?.split('@')[0] || 'Registered Student';
+    
+    await supabase.from('discussions').insert([
+      { user_id: user.id, message: chatMessage, room_topic: roomTopic, sender_name: profileName, student_level: selectedLevel }
+    ]);
+    setChatMessage('');
+  };
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    router.push('/auth');
+  };
+
+  if (loading) return <div className="p-8 text-center text-black">Loading Academic Hub...</div>;
+
+  return (
+    <div className="min-h-screen bg-gray-50 text-black">
+      {/* High Contrast Deep Emerald Themed Nav bar Component */}
+      <nav className="flex items-center justify-between bg-emerald-800 p-4 text-white shadow-md">
+        <h1 className="text-xl font-bold tracking-wide text-white" style={{color: '#ffffff'}}>Medical Radiography Hub</h1>
+        <div className="flex items-center gap-4">
+          <span className="text-sm font-medium text-white opacity-90">{user?.email}</span>
+          <button onClick={handleSignOut} className="rounded bg-red-600 px-3 py-1 text-sm font-medium text-white hover:bg-red-700 transition">Sign Out</button>
+        </div>
+      </nav>
+
+      {/* Level Selection Header Navigation Grid */}
+      <div className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-50">
+        <div className="mx-auto max-w-7xl px-6 flex justify-center space-x-2 md:space-x-4 py-3">
+          {['100', '200', '300', '400', '500'].map((level) => (
+            <button
+              key={level}
+              onClick={() => setSelectedLevel(level)}
+              className={`px-4 py-2 rounded-lg font-bold text-sm transition-all duration-150 ${
+                selectedLevel === level
+                  ? 'bg-emerald-600 text-white shadow-md shadow-emerald-200'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              {level} Level
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <main className="mx-auto max-w-7xl p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="space-y-6 lg:col-span-1">
+          <div className="bg-white p-6 rounded-xl shadow-md border border-gray-200">
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Upload Form ({selectedLevel}L)</h2>
+            <form onSubmit={handleUploadNote} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600">Topic Title</label>
+                <input type="text" required value={title} onChange={(e) => setTitle(e.target.value)} className="mt-1 block w-full rounded border p-2 text-black border-gray-300 focus:outline-emerald-500" />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600">Course Code</label>
+                  <input type="text" required value={courseCode} onChange={(e) => setCourseCode(e.target.value)} className="mt-1 block w-full rounded border p-2 text-black border-gray-300 focus:outline-emerald-500" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600">Lecturer</label>
+                  <input type="text" value={lecturer} onChange={(e) => setLecturer(e.target.value)} className="mt-1 block w-full rounded border p-2 text-black border-gray-300 focus:outline-emerald-500" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600">Key Concepts Summary</label>
+                <textarea required rows={4} value={content} onChange={(e) => setContent(e.target.value)} className="mt-1 block w-full rounded border p-2 text-black border-gray-300 focus:outline-emerald-500 resize-none" />
+              </div>
+              <button type="submit" className="w-full rounded bg-emerald-600 p-2 text-white font-medium hover:bg-emerald-700 transition">Publish to {selectedLevel}L Stream</button>
+            </form>
+          </div>
+        </div>
+
+        <div className="lg:col-span-2 space-y-8">
+          <div>
+            <h2 className="text-2xl font-bold text-gray-900 mb-4">{selectedLevel} Level Study Stream</h2>
+            {notes.length === 0 ? (
+              <div className="bg-white p-6 rounded-xl text-center text-gray-400 border border-dashed border-gray-300">No lecture notes shared yet.</div>
+            ) : (
+              <div className="space-y-3 max-h-[350px] overflow-y-auto pr-2">
+                {notes.map((note) => (
+                  <div key={note.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
+                    <span className="inline-block bg-emerald-100 text-emerald-800 text-xs font-bold px-2 py-0.5 rounded uppercase">{note.course_code}</span>
+                    <h3 className="text-md font-bold text-gray-900 mt-1">{note.title} <span className="text-xs font-normal text-gray-500">by {note.lecturer_name}</span></h3>
+                    <p className="text-gray-700 text-sm mt-1 whitespace-pre-line">{note.content}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-white p-6 rounded-xl shadow-md border border-gray-200">
+            <div className="flex items-center justify-between border-b pb-3 mb-4">
+              <h2 className="text-xl font-bold text-gray-900">{selectedLevel}L Forum Room</h2>
+              <select value={roomTopic} onChange={(e) => setRoomTopic(e.target.value)} className="border rounded p-1 text-sm bg-gray-50 border-gray-300 text-black">
+                <option value="general">General Discussion</option>
+                <option value="physics">Radiographic Physics</option>
+                <option value="anatomy">Anatomy & Physiology</option>
+              </select>
+            </div>
+
+            <div className="bg-gray-50 border rounded-lg p-4 h-48 overflow-y-auto flex flex-col gap-3 mb-4">
+              {messages.length === 0 ? (
+                <p className="text-center text-sm text-gray-400 my-auto">Channel is quiet.</p>
+              ) : (
+                messages.map((msg) => (
+                  <div key={msg.id} className="text-sm bg-white p-2 rounded shadow-sm border border-gray-100 max-w-[85%] self-start">
+                    <p className="text-gray-700">{msg.message}</p>
+                    <span className="text-[10px] text-emerald-600 font-semibold block mt-0.5">{msg.sender_name || 'Registered Student'}</span>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <form onSubmit={handleSendMessage} className="flex gap-2">
+              <input type="text" value={chatMessage} onChange={(e) => setChatMessage(e.target.value)} placeholder={`Message #${roomTopic}...`} className="flex-1 rounded border p-2 text-sm border-gray-300 focus:outline-emerald-500 text-black" />
+              <button type="submit" className="bg-emerald-600 text-white rounded px-4 text-sm font-medium hover:bg-emerald-700 transition">Send</button>
+            </form>
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}
