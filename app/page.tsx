@@ -11,10 +11,13 @@ export default function Dashboard() {
   const [roomTopic, setRoomTopic] = useState('general');
   const [selectedLevel, setSelectedLevel] = useState('100');
 
+  // Notes Form State Variables
   const [title, setTitle] = useState('');
   const [courseCode, setCourseCode] = useState('');
   const [lecturer, setLecturer] = useState('');
   const [content, setContent] = useState('');
+  const [uploadingFile, setUploadingFile] = useState(false);
+  const [fileUrl, setFileUrl] = useState('');
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
@@ -63,20 +66,47 @@ export default function Dashboard() {
     if (data) setMessages(data);
   };
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    const file = e.target.files[0];
+    
+    // Strict 50MB restriction filter to avoid heavy textbook upload mistakes
+    if (file.size > 50 * 1024 * 1024) {
+      alert('Quota Restriction: File size exceeds the allowed maximum limit of 50MB per upload package.');
+      e.target.value = '';
+      return;
+    }
+
+    setUploadingFile(true);
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Math.random()}.${fileExt}`;
+    const filePath = `${selectedLevel}/${fileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('lecture-materials')
+      .upload(filePath, file);
+
+    if (!uploadError) {
+      const { data } = supabase.storage.from('lecture-materials').getPublicUrl(filePath);
+      setFileUrl(data.publicUrl);
+    } else {
+      alert('Upload failed: ' + uploadError.message);
+    }
+    setUploadingFile(false);
+  };
+
   const handleUploadNote = async (e: React.FormEvent) => {
     e.preventDefault();
     const { error } = await supabase.from('notes').insert([
-      { user_id: user.id, title, course_code: courseCode, lecturer_name: lecturer, content, student_level: selectedLevel }
+      { user_id: user.id, title, course_code: courseCode, lecturer_name: lecturer, content, student_level: selectedLevel, file_url: fileUrl }
     ]);
-    if (!error) { setTitle(''); setCourseCode(''); setLecturer(''); setContent(''); fetchNotes(selectedLevel); }
+    if (!error) { setTitle(''); setCourseCode(''); setLecturer(''); setContent(''); setFileUrl(''); fetchNotes(selectedLevel); }
   };
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!chatMessage.trim()) return;
-    
-    // Fallback pipeline: read the current user metadata name instantly
-    const profileName = user.user_metadata?.full_name || user.email?.split('@')[0] || 'Registered Student';
-    
+    const profileName = user.user_metadata?.full_name || 'Registered Student';
     await supabase.from('discussions').insert([
       { user_id: user.id, message: chatMessage, room_topic: roomTopic, sender_name: profileName, student_level: selectedLevel }
     ]);
@@ -92,16 +122,14 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50 text-black">
-      {/* High Contrast Deep Emerald Themed Nav bar Component */}
       <nav className="flex items-center justify-between bg-emerald-800 p-4 text-white shadow-md">
-        <h1 className="text-xl font-bold tracking-wide text-white" style={{color: '#ffffff'}}>Medical Radiography Hub</h1>
+        <h1 className="text-xl font-bold tracking-wide text-white">Medical Radiography Hub</h1>
         <div className="flex items-center gap-4">
-          <span className="text-sm font-medium text-white opacity-90">{user?.email}</span>
+          <span className="text-sm font-medium opacity-90">{user?.email}</span>
           <button onClick={handleSignOut} className="rounded bg-red-600 px-3 py-1 text-sm font-medium text-white hover:bg-red-700 transition">Sign Out</button>
         </div>
       </nav>
 
-      {/* Level Selection Header Navigation Grid */}
       <div className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-50">
         <div className="mx-auto max-w-7xl px-6 flex justify-center space-x-2 md:space-x-4 py-3">
           {['100', '200', '300', '400', '500'].map((level) => (
@@ -141,9 +169,17 @@ export default function Dashboard() {
               </div>
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600">Key Concepts Summary</label>
-                <textarea required rows={4} value={content} onChange={(e) => setContent(e.target.value)} className="mt-1 block w-full rounded border p-2 text-black border-gray-300 focus:outline-emerald-500 resize-none" />
+                <textarea required rows={3} value={content} onChange={(e) => setContent(e.target.value)} className="mt-1 block w-full rounded border p-2 text-black border-gray-300 focus:outline-emerald-500 resize-none" />
               </div>
-              <button type="submit" className="w-full rounded bg-emerald-600 p-2 text-white font-medium hover:bg-emerald-700 transition">Publish to {selectedLevel}L Stream</button>
+              
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-gray-600">Attach Lecture Materials / Image (Max 50MB)</label>
+                <input type="file" accept=".pdf,.docx,.doc,.pptx,.ppt,.jpg,.jpeg,.png" onChange={handleFileUpload} className="mt-1 block w-full text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100" />
+                {uploadingFile && <p className="text-xs text-emerald-600 mt-1 animate-pulse">Uploading to cloud storage...</p>}
+                {fileUrl && <p className="text-xs text-green-600 mt-1">✓ Attached successfully!</p>}
+              </div>
+
+              <button type="submit" disabled={uploadingFile} className="w-full rounded bg-emerald-600 p-2 text-white font-medium hover:bg-emerald-700 transition disabled:bg-gray-400">Publish to {selectedLevel}L Stream</button>
             </form>
           </div>
         </div>
@@ -160,6 +196,12 @@ export default function Dashboard() {
                     <span className="inline-block bg-emerald-100 text-emerald-800 text-xs font-bold px-2 py-0.5 rounded uppercase">{note.course_code}</span>
                     <h3 className="text-md font-bold text-gray-900 mt-1">{note.title} <span className="text-xs font-normal text-gray-500">by {note.lecturer_name}</span></h3>
                     <p className="text-gray-700 text-sm mt-1 whitespace-pre-line">{note.content}</p>
+                    
+                    {note.file_url && (
+                      <a href={note.file_url} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center gap-1 text-xs font-bold text-emerald-700 hover:underline bg-emerald-50 px-2 py-1 rounded border border-emerald-200">
+                        📄 View Attached Material
+                      </a>
+                    )}
                   </div>
                 ))}
               </div>
@@ -178,7 +220,7 @@ export default function Dashboard() {
 
             <div className="bg-gray-50 border rounded-lg p-4 h-48 overflow-y-auto flex flex-col gap-3 mb-4">
               {messages.length === 0 ? (
-                <p className="text-center text-sm text-gray-400 my-auto">Channel is quiet.</p>
+                <p className="text-center text-sm text-gray-400 my-auto">Channel is quiet. Type a question below to consult peers!</p>
               ) : (
                 messages.map((msg) => (
                   <div key={msg.id} className="text-sm bg-white p-2 rounded shadow-sm border border-gray-100 max-w-[85%] self-start">
