@@ -27,7 +27,9 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
-  const isSecretaryGeneral = user?.email === 'rowland.eze.240759@unn.edu.ng' || user?.email === 'rolexrowland@gmail.com';
+  // Case-Insensitive Secretary General Admin Gate Checklist
+  const currentUserEmail = user?.email?.toLowerCase() || '';
+  const isSecretaryGeneral = currentUserEmail === 'rowland.eze.240759@unn.edu.ng' || currentUserEmail === 'rolexrowland@gmail.com';
 
   useEffect(() => {
     const checkUser = async () => {
@@ -81,12 +83,11 @@ export default function Dashboard() {
     const { data } = await supabase.from('suggestions').select('*').eq('target_level', level).order('created_at', { ascending: false });
     if (data) setSuggestions(data);
   };
-
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
     const file = e.target.files;
     if (file.size > 50 * 1024 * 1024) {
-      alert('Quota Restriction: File size exceeds the allowed maximum limit of 50MB per upload package.');
+      alert('Quota Restriction: File size exceeds the allowed maximum limit of 50MB.');
       e.target.value = '';
       return;
     }
@@ -109,6 +110,7 @@ export default function Dashboard() {
     ]);
     if (!error) { setTitle(''); setCourseCode(''); setLecturer(''); setContent(''); setFileUrl(''); fetchNotes(selectedLevel); }
   };
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!chatMessage.trim()) return;
@@ -135,14 +137,13 @@ export default function Dashboard() {
     const { error } = await supabase.from('suggestions').insert([
       { suggestion: suggestionText, target_level: selectedLevel }
     ]);
-    if (!error) { setSuggestionText(''); alert('Anonymous feedback delivered successfully directly to the SG portal portfolio!'); }
+    if (!error) { setSuggestionText(''); alert('Anonymous feedback delivered successfully!'); }
   };
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     router.push('/auth');
   };
-
   if (loading) return <div className="p-8 text-center text-black">Loading Academic Hub...</div>;
 
   return (
@@ -250,25 +251,28 @@ export default function Dashboard() {
                     {suggestions.map((sug) => (
                       <div key={sug.id} className="bg-gray-50 p-3 rounded-lg border text-sm text-gray-800">
                         <p>{sug.suggestion}</p>
-))}
+                        <span className="text-[10px] text-gray-400 block mt-1">Received securely via level stream</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
-)}
-
-)}
-{selectedLevel} Level Study Stream
-{notes.length === 0 ? (
-No lecture notes shared yet.
-) : (
-
-{notes.map((note) => (
-
-{note.course_code}
-{note.title} by {note.lecturer_name}
-{note.content}
-{note.file_url && (
-
-?? View Attached Material
-
+          <div className="lg:col-span-2 space-y-8">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900 mb-4">{selectedLevel} Level Study Stream</h2>
+              {notes.length === 0 ? (
+                <div className="bg-white p-6 rounded-xl text-center text-gray-400 border border-dashed border-gray-300">No lecture notes shared yet.</div>
+              ) : (
+                <div className="space-y-3 max-h-[350px] overflow-y-auto pr-2">
+                  {notes.map((note) => (
+                    <div key={note.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
+                      <span className="inline-block bg-emerald-100 text-emerald-800 text-xs font-bold px-2 py-0.5 rounded uppercase">{note.course_code}</span>
+                      <h3 className="text-md font-bold text-gray-900 mt-1">{note.title} <span className="text-xs font-normal text-gray-500">by {note.lecturer_name}</span></h3>
+                      <p className="text-gray-700 text-sm mt-1 whitespace-pre-line">{note.content}</p>
+                      {note.file_url && (
 )}
 
 ))}
